@@ -2,45 +2,109 @@
 include 'db.php';
 if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit(); }
 
-$query = "SELECT news.*, categories.name AS cat_name, users.name AS user_name 
-          FROM news 
-          INNER JOIN categories ON news.category_id = categories.id
-          INNER JOIN users ON news.user_id = users.id
-          WHERE news.is_deleted = 0";
+// جلب الفئات لعرضها في القائمة المنسدلة
+$categories = mysqli_query($conn, "SELECT * FROM categories");
 
-$result = mysqli_query($conn, $query);
+if (isset($_POST['add_news'])) {
+    $title = mysqli_real_escape_length = $_POST['title'];
+    $category_id = $_POST['category_id'];
+    $details = $_POST['details'];
+    
+    // تأمين الـ user_id: لو السيرفر ضيع الجلسة بنعطيه رقم 1 كقيمة افتراضية عشان الداتابيز ما ترفض
+    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 1; 
+
+    // تنظيف النصوص لمنع مشاكل الـ SQL Errors
+    $title = mysqli_real_escape_string($conn, $title);
+    $details = mysqli_real_escape_string($conn, $details);
+
+    // معالجة رفع الصورة التقليدية
+    $image_name = $_FILES['image']['name'];
+    $image_tmp = $_FILES['image']['tmp_name'];
+    $folder = "uploads/" . $image_name;
+
+    if (!is_dir("uploads")) {
+        mkdir("uploads");
+    }
+
+    // فحص الفئة: لو مش مختارة أو قيمتها فارغة، بنشوف أول فئة بالداتابيز لتفادي قيود الـ Foreign Key
+    if (empty($category_id)) {
+        $check_cat = mysqli_query($conn, "SELECT id FROM categories LIMIT 1");
+        if ($cat_row = mysqli_fetch_assoc($check_cat)) {
+            $category_id = $cat_row['id'];
+        } else {
+            $category_id = 1; // قيمة احتياطية قصوى
+        }
+    }
+
+    if (move_uploaded_file($image_tmp, $folder)) {
+        // استعلام الإدخال المباشر والمتوافق تماماً مع جدولك
+        $query = "INSERT INTO news (title, category_id, details, image, user_id, is_deleted) 
+                  VALUES ('$title', '$category_id', '$details', '$image_name', '$user_id', 0)";
+        
+        if (mysqli_query($conn, $query)) {
+            $msg = "News article published successfully!";
+        } else {
+            // لو فشل الاستعلام، الكود هيظهر لكِ السبب الحقيقي والخطأ من الداتابيز عشان نعرفه فوراً
+            $error = "Database error: " . mysqli_error($conn);
+        }
+    } else {
+        $error = "Failed to upload image. Please check the uploads folder permissions.";
+    }
+}
 ?>
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
-    <title>عرض الأخبار</title>
-    <style>table, th, td { border: 1px solid black; border-collapse: collapse; padding: 10px; text-align: center; }</style>
+    <meta charset="UTF-8">
+    <title>Add News</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f9f9f9; margin: 0; padding: 0; }
+        .navbar { background: #222222; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white; }
+        .navbar h2 { margin: 0; font-size: 20px; }
+        .navbar a { color: white; text-decoration: none; font-size: 14px; font-weight: bold; margin-left: 15px; }
+        .container { padding: 30px; max-width: 600px; margin: 0 auto; }
+        .form-box { background: white; border: 1px solid #cccccc; padding: 25px; }
+        .input-control { width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #cccccc; box-sizing: border-box; }
+        .btn-submit { background-color: #222222; color: white; padding: 10px; border: none; width: 100%; font-weight: bold; cursor: pointer; }
+    </style>
 </head>
 <body>
-    <a href="dashboard.php">العودة للوحة التحكم</a>
-    <h2>جميع الأخبار المنشورة</h2>
-    <table>
-        <tr>
-            <th>العنوان</th>
-            <th>الفئة</th>
-            <th>التفاصيل</th>
-            <th>الصورة</th>
-            <th>الناشر</th>
-            <th>العمليات</th>
-        </tr>
-        <?php while($row = mysqli_fetch_assoc($result)) { ?>
-        <tr>
-            <td><?php echo $row['title']; ?></td>
-            <td><?php echo $row['cat_name']; ?></td>
-            <td><?php echo $row['details']; ?></td>
-            <td><img src="uploads/<?php echo $row['image']; ?>" width="80"></td>
-            <td><?php echo $row['user_name']; ?></td>
-            <td>
-                <a href="edit_news.php?id=<?php echo $row['id']; ?>"> تعديل</a> | 
-                <a href="delete_news.php?id=<?php echo $row['id']; ?>" onclick="return confirm('هل أنت متأكد من الحذف؟')">❌ حذف</a>
-            </td>
-        </tr>
-        <?php } ?>
-    </table>
+    <div class="navbar">
+        <h2>News System</h2>
+        <div>
+            <a href="dashboard.php">Dashboard</a>
+            <a href="view_news.php">View All News</a>
+        </div>
+    </div>
+    <div class="container">
+        <div class="form-box">
+            <h2>Add New Article</h2>
+            <?php if(isset($msg)) echo "<p style='color:green; font-weight:bold;'>$msg</p>"; ?>
+            <?php if(isset($error)) echo "<p style='color:red; font-weight:bold;'>$error</p>"; ?>
+            
+            <form action="add_news.php" method="POST" enctype="multipart/form-data">
+                <label>Article Title:</label>
+                <input type="text" name="title" class="input-control" required>
+
+                <label>Category:</label>
+                <select name="category_id" class="input-control" required>
+                    <option value="">Select Category</option>
+                    <?php if($categories && mysqli_num_rows($categories) > 0): ?>
+                        <?php while($cat = mysqli_fetch_assoc($categories)) { ?>
+                            <option value="<?php echo $cat['id']; ?>"><?php echo $cat['name']; ?></option>
+                        <?php } ?>
+                    <?php endif; ?>
+                </select>
+
+                <label>News Details:</label>
+                <textarea name="details" class="input-control" style="height: 120px;" required></textarea>
+
+                <label>Article Image:</label>
+                <input type="file" name="image" class="input-control" required>
+
+                <button type="submit" name="add_news" class="btn-submit">Publish News</button>
+            </form>
+        </div>
+    </div>
 </body>
 </html>
